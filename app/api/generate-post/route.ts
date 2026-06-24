@@ -1,10 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
-import { supabase } from '@/lib/supabase';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 interface GeneratedContent {
   hook: string;
@@ -48,7 +42,7 @@ function parseGeneratedContent(text: string): GeneratedContent {
     } else if (imageMatch) {
       result.image_idea = imageMatch[1].trim();
       currentKey = 'image_idea';
-    } else if (currentKey === 'caption' && !result.caption.endsWith('.')) {
+    } else if (currentKey === 'caption' && line.trim()) {
       result.caption += ' ' + line.trim();
     }
   }
@@ -56,7 +50,7 @@ function parseGeneratedContent(text: string): GeneratedContent {
   if (!result.hook) result.hook = 'Breaking the silence on human trafficking';
   if (!result.caption) result.caption = 'Every voice matters in the fight against trafficking.';
   if (!result.cta) result.cta = 'Share to raise awareness.';
-  if (result.hashtags.length === 0) result.hashtags = ['EndHumanTrafficking', 'SafeRouteHub', 'Awareneess'];
+  if (result.hashtags.length === 0) result.hashtags = ['EndHumanTrafficking', 'SafeRouteHub', 'Awareness'];
   if (!result.image_idea) result.image_idea = 'Survivor empowerment imagery';
 
   return result;
@@ -70,6 +64,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Platform, tone, and topic are required' },
         { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'Gemini API key not configured' },
+        { status: 500 }
       );
     }
 
@@ -101,6 +103,7 @@ Requirements:
 - Avoid sensationalism or graphic content
 - Center survivor dignity and empowerment
 - Include practical awareness steps
+- Always end with: National Human Trafficking Hotline: 1-888-373-7888 | Text BeFree to 233733
 
 Format your response EXACTLY as follows:
 HOOK: [A compelling attention-grabber, one sentence]
@@ -111,44 +114,45 @@ IMAGE IDEA: [Brief description of a suitable visual]
 
 Generate the post now.`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024,
+          },
+        }),
+      }
+    );
 
-    const textContent = message.content.find((block): block is Anthropic.TextBlock => block.type === 'text');
-    const generatedText = textContent?.text ?? '';
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Gemini API error:', errorData);
+      return NextResponse.json(
+        { error: 'Failed to generate content from Gemini API' },
+        { status: 500 }
+      );
+    }
+
+    const data = await response.json();
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+    if (!generatedText) {
+      return NextResponse.json(
+        { error: 'No content generated' },
+        { status: 500 }
+      );
+    }
 
     const parsed = parseGeneratedContent(generatedText);
 
-    const { data: savedPost, error } = await supabase
-      .from('generated_posts')
-      .insert({
-        platform,
-        tone,
-        topic,
-        hook: parsed.hook,
-        caption: parsed.caption,
-        cta: parsed.cta,
-        hashtags: parsed.hashtags,
-        image_idea: parsed.image_idea
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Supabase insert error:', error);
-    }
-
     return NextResponse.json({
       success: true,
-      post: savedPost || parsed
+      post: parsed
     });
 
   } catch (error) {
