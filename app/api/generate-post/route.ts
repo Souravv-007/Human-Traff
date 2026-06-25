@@ -58,7 +58,7 @@ function parseGeneratedContent(text: string): GeneratedContent {
 
 export async function POST(request: NextRequest) {
   try {
-    const { platform, tone, topic } = await request.json();
+    const { platform, tone, topic, language = 'English' } = await request.json();
 
     if (!platform || !tone || !topic) {
       return NextResponse.json(
@@ -67,10 +67,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'OpenRouter API key not configured' },
+        { error: 'OpenAI API key not configured' },
         { status: 500 }
       );
     }
@@ -92,6 +92,8 @@ export async function POST(request: NextRequest) {
 
     const prompt = `Generate an anti-human trafficking awareness social media post for ${platform}.
 
+IMPORTANT: Write the entire response in ${language} language only. All text including Hook, Caption, CTA must be in ${language}.
+
 Platform guidelines: ${platformGuides[platform] || 'Engaging and shareable'}
 Tone: ${toneGuides[tone] || tone}
 Topic: ${topic}
@@ -105,29 +107,27 @@ Requirements:
 - Include practical awareness steps
 - Always end with: National Human Trafficking Hotline: 1-888-373-7888 | Text BeFree to 233733
 
-Format your response EXACTLY as follows:
-HOOK: [A compelling attention-grabber, one sentence]
-CAPTION: [The main body text, 2-3 sentences]
-CTA: [Clear call to action, one sentence]
-HASHTAGS: [5-8 relevant hashtags separated by commas]
-IMAGE IDEA: [Brief description of a suitable visual]
+Format your response EXACTLY as follows (labels in English, content in ${language}):
+HOOK: [A compelling attention-grabber in ${language}, one sentence]
+CAPTION: [The main body text in ${language}, 2-3 sentences]
+CTA: [Clear call to action in ${language}, one sentence]
+HASHTAGS: [5-8 relevant hashtags in ${language} separated by commas]
+IMAGE IDEA: [Brief description in English of a suitable visual]
 
 Generate the post now.`;
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
-        'X-Title': process.env.NEXT_PUBLIC_SITE_NAME || 'SafeRouteHub',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-3.5-turbo', // Change this to any OpenRouter-supported model
+        model: 'gpt-3.5-turbo',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert in trauma-informed, survivor-centered anti-trafficking awareness communication.'
+            content: `You are an expert in trauma-informed, survivor-centered anti-trafficking awareness communication. You write content in ${language} when requested.`
           },
           {
             role: 'user',
@@ -141,9 +141,9 @@ Generate the post now.`;
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('OpenRouter API error:', errorData);
+      console.error('OpenAI API error:', errorData);
       return NextResponse.json(
-        { error: 'Failed to generate content from OpenRouter API' },
+        { error: 'Failed to generate content from OpenAI API' },
         { status: 500 }
       );
     }
@@ -162,7 +162,8 @@ Generate the post now.`;
 
     return NextResponse.json({
       success: true,
-      post: parsed
+      post: parsed,
+      language: language
     });
 
   } catch (error) {
