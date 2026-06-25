@@ -5,13 +5,13 @@ import { useState } from "react";
 import {
   AlertTriangle,
   Phone,
-  Mail,
   Send,
   Eye,
   Heart,
   Shield,
   BarChart3,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,52 @@ interface AIAssistantPanelProps {
 
 export default function AIAssistantPanel({ onQuickAction, onGenerateClick }: AIAssistantPanelProps) {
   const [query, setQuery] = useState("");
+  const [response, setResponse] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSend = async () => {
+    if (!query.trim()) return;
+
+    setIsLoading(true);
+    setError("");
+    setResponse("");
+
+    try {
+      const res = await fetch("/api/generate-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "Instagram",
+          tone: "Educational",
+          topic: query,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        const post = data.post;
+        setResponse(
+          `📌 ${post.hook}\n\n${post.caption}\n\n📢 ${post.cta}\n\n${post.hashtags.map((h: string) => `#${h}`).join(" ")}`
+        );
+      } else {
+        setError(data.error || "Failed to get a response. Please try again.");
+      }
+    } catch {
+      setError("Failed to connect to AI service. Please try again.");
+    } finally {
+      setIsLoading(false);
+      setQuery("");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
   return (
     <motion.div
@@ -106,7 +152,10 @@ export default function AIAssistantPanel({ onQuickAction, onGenerateClick }: AIA
                 transition={{ delay: index * 0.1 }}
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => onQuickAction?.(action.label)}
+                onClick={() => {
+                  setQuery(action.label);
+                  onQuickAction?.(action.label);
+                }}
                 className={cn(
                   "glass rounded-xl p-4 text-left border border-border/50 hover:border-purple-500/50 transition-all group"
                 )}
@@ -140,13 +189,54 @@ export default function AIAssistantPanel({ onQuickAction, onGenerateClick }: AIA
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="Ask anything about trafficking awareness..."
-              className="w-full bg-background/50 border border-border rounded-xl px-4 py-3 pr-12 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
+              disabled={isLoading}
+              className="w-full bg-background/50 border border-border rounded-xl px-4 py-3 pr-12 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all disabled:opacity-50"
             />
-            <button className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-purple-500 hover:bg-purple-600 flex items-center justify-center transition-colors">
-              <Send className="w-4 h-4 text-white" />
+            <button
+              onClick={handleSend}
+              disabled={isLoading || !query.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-purple-500 hover:bg-purple-600 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 text-white" />
+              )}
             </button>
           </div>
+
+          {/* AI Response */}
+          {isLoading && (
+            <div className="mt-3 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+              <p className="text-sm text-purple-300 flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Generating awareness content...
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+
+          {response && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 p-4 rounded-xl bg-purple-500/10 border border-purple-500/20"
+            >
+              <p className="text-xs text-purple-400 font-medium mb-2 uppercase tracking-wider">
+                AI Response
+              </p>
+              <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">
+                {response}
+              </p>
+            </motion.div>
+          )}
         </div>
       </div>
     </motion.div>
